@@ -1,0 +1,646 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>German Sentence Builder</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Fredoka:wght@400;600&display=swap" rel="stylesheet">
+    <style>
+        body {
+            font-family: 'Fredoka', sans-serif;
+            touch-action: manipulation; /* Improves touch response */
+        }
+        .stage-transition {
+            transition: all 0.3s ease-in-out;
+        }
+        .slot {
+            transition: all 0.2s;
+            min-width: 80px;
+            min-height: 60px;
+        }
+        .slot.active {
+            border-color: #3b82f6;
+            background-color: #eff6ff;
+            transform: scale(1.05);
+        }
+        .slot.filled {
+            border-style: solid;
+        }
+        .btn-interactive:active {
+            transform: scale(0.95);
+        }
+        /* Custom scrollbar for verb list */
+        .verb-list::-webkit-scrollbar {
+            width: 8px;
+        }
+        .verb-list::-webkit-scrollbar-track {
+            background: #f1f1f1;
+        }
+        .verb-list::-webkit-scrollbar-thumb {
+            background: #cbd5e1;
+            border-radius: 4px;
+        }
+        .wiggle {
+            animation: wiggle 0.5s ease-in-out;
+        }
+        @keyframes wiggle {
+            0%, 100% { transform: rotate(0deg); }
+            25% { transform: rotate(-3deg); }
+            75% { transform: rotate(3deg); }
+        }
+        .pop {
+            animation: pop 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+        }
+        @keyframes pop {
+            0% { transform: scale(0.5); opacity: 0; }
+            100% { transform: scale(1); opacity: 1; }
+        }
+    </style>
+</head>
+<body class="bg-slate-100 min-h-screen flex flex-col items-center justify-center p-4">
+
+    <!-- Main App Container -->
+    <main id="app-container" class="w-full max-w-4xl bg-white rounded-3xl shadow-2xl overflow-hidden relative min-h-[600px] flex flex-col">
+        
+        <!-- Header / Progress -->
+        <header class="bg-slate-800 text-white p-4 flex justify-between items-center z-10">
+            <h1 class="text-xl font-semibold tracking-wide">🇩🇪 Sentence Builder</h1>
+            <button onclick="resetApp()" class="text-xs bg-slate-600 hover:bg-slate-500 px-3 py-1 rounded-full transition">Restart</button>
+        </header>
+
+        <!-- Dynamic Content Area -->
+        <div id="content-area" class="flex-grow relative p-6 flex flex-col items-center justify-center">
+            <!-- Content injected by JS -->
+        </div>
+
+        <!-- Feedback / Instruction Bar -->
+        <div id="instruction-bar" class="bg-blue-50 border-t-4 border-blue-400 p-4 text-center min-h-[80px] flex items-center justify-center">
+            <p id="instruction-text" class="text-blue-800 text-lg font-medium">Welcome! Let's build a sentence.</p>
+        </div>
+
+    </main>
+
+    <!-- AUDIO FOR UI EFFECTS (Optional, silent fallback if blocked) -->
+    
+    <script>
+        // --- DATA ---
+        
+        const pronouns = [
+            { id: 'ich', label: 'ich', eng: 'I', color: 'bg-red-100 border-red-300 text-red-800' },
+            { id: 'du', label: 'du', eng: 'you', color: 'bg-orange-100 border-orange-300 text-orange-800' },
+            { id: 'er', label: 'er', eng: 'he', color: 'bg-yellow-100 border-yellow-300 text-yellow-800' },
+            { id: 'sie_sg', label: 'sie (she)', eng: 'she', color: 'bg-yellow-100 border-yellow-300 text-yellow-800' },
+            { id: 'wir', label: 'wir', eng: 'we', color: 'bg-green-100 border-green-300 text-green-800' },
+            { id: 'ihr', label: 'ihr', eng: 'you guys', color: 'bg-teal-100 border-teal-300 text-teal-800' },
+            { id: 'sie_pl', label: 'sie (they)', eng: 'they', color: 'bg-blue-100 border-blue-300 text-blue-800' }
+        ];
+
+        const tenses = [
+            { id: 'present', label: 'Present', desc: 'Now', color: 'bg-blue-500 text-white' },
+            { id: 'future', label: 'Future', desc: 'Will happen', color: 'bg-purple-500 text-white' },
+            { id: 'past', label: 'Past', desc: 'Has happened', color: 'bg-orange-500 text-white' }
+        ];
+
+        // Verbs from user list + standard ones
+        const verbs = [
+            { 
+                inf: 'spielen', 
+                eng: 'play', 
+                context: 'Fußball',
+                type: 'weak', 
+                aux: 'haben',
+                stem: 'spiel',
+                pastPart: 'gespielt'
+            },
+            { 
+                inf: 'machen', 
+                eng: 'do', 
+                context: 'Hausaufgaben',
+                type: 'weak', 
+                aux: 'haben',
+                stem: 'mach',
+                pastPart: 'gemacht'
+            },
+            { 
+                inf: 'hören', 
+                eng: 'listen to', 
+                context: 'Musik',
+                type: 'weak', 
+                aux: 'haben',
+                stem: 'hör',
+                pastPart: 'gehört'
+            },
+            { 
+                inf: 'kaufen', 
+                eng: 'buy', 
+                context: 'einen Kuli',
+                type: 'weak', 
+                aux: 'haben',
+                stem: 'kauf',
+                pastPart: 'gekauft'
+            },
+            { 
+                inf: 'trinken', 
+                eng: 'drink', 
+                context: 'Cola',
+                type: 'strong', 
+                aux: 'haben',
+                stem: 'trink',
+                pastPart: 'getrunken'
+            },
+            { 
+                inf: 'essen', 
+                eng: 'eat', 
+                context: 'Pizza',
+                type: 'strong', // stem change handled in logic
+                aux: 'haben',
+                stem: 'ess',
+                pastPart: 'gegessen'
+            },
+            { 
+                inf: 'gehen', 
+                eng: 'go', 
+                context: 'ins Kino',
+                type: 'strong', 
+                aux: 'sein',
+                stem: 'geh',
+                pastPart: 'gegangen'
+            },
+            { 
+                inf: 'fahren', 
+                eng: 'travel', 
+                context: 'nach Berlin',
+                type: 'strong', // stem change handled
+                aux: 'sein',
+                stem: 'fahr',
+                pastPart: 'gefahren'
+            },
+            { 
+                inf: 'bleiben', 
+                eng: 'stay', 
+                context: 'zu Hause',
+                type: 'strong', 
+                aux: 'sein',
+                stem: 'bleib',
+                pastPart: 'geblieben'
+            }
+        ];
+
+        // Conjugation Data Helpers
+        const endings = {
+            'ich': 'e', 'du': 'st', 'er': 't', 'sie_sg': 't', 
+            'wir': 'en', 'ihr': 't', 'sie_pl': 'en'
+        };
+
+        const werdenForms = {
+            'ich': 'werde', 'du': 'wirst', 'er': 'wird', 'sie_sg': 'wird',
+            'wir': 'werden', 'ihr': 'werdet', 'sie_pl': 'werden'
+        };
+
+        const habenForms = {
+            'ich': 'habe', 'du': 'hast', 'er': 'hat', 'sie_sg': 'hat',
+            'wir': 'haben', 'ihr': 'habt', 'sie_pl': 'haben'
+        };
+
+        const seinForms = {
+            'ich': 'bin', 'du': 'bist', 'er': 'ist', 'sie_sg': 'ist',
+            'wir': 'sind', 'ihr': 'seid', 'sie_pl': 'sind'
+        };
+
+        // --- STATE ---
+        let state = {
+            step: 0,
+            pronoun: null,
+            tense: null,
+            verb: null,
+            sentence: [] // Array of constructed parts
+        };
+
+        // --- DOM ELEMENTS ---
+        const contentArea = document.getElementById('content-area');
+        const instructionText = document.getElementById('instruction-text');
+
+        // --- APP LOGIC ---
+
+        function init() {
+            renderStep1();
+        }
+
+        function resetApp() {
+            state = { step: 0, pronoun: null, tense: null, verb: null, sentence: [] };
+            renderStep1();
+        }
+
+        function setInstruction(text, type = 'normal') {
+            instructionText.textContent = text;
+            const bar = document.getElementById('instruction-bar');
+            bar.className = `p-4 text-center min-h-[80px] flex items-center justify-center border-t-4 transition-colors duration-300 ${
+                type === 'success' ? 'bg-green-50 border-green-400 text-green-800' :
+                type === 'error' ? 'bg-red-50 border-red-400 text-red-800' :
+                'bg-blue-50 border-blue-400 text-blue-800'
+            }`;
+            if(type === 'error') {
+                bar.classList.add('wiggle');
+                setTimeout(() => bar.classList.remove('wiggle'), 500);
+            }
+        }
+
+        // --- RENDERERS ---
+
+        // STEP 1: Select Pronoun
+        function renderStep1() {
+            setInstruction("Step 1: Who is doing the action?");
+            let html = `<div class="grid grid-cols-2 md:grid-cols-3 gap-4 w-full max-w-2xl pop">`;
+            pronouns.forEach(p => {
+                html += `
+                    <button onclick="handlePronounSelect('${p.id}')" 
+                        class="${p.color} border-b-4 hover:brightness-95 active:border-b-0 active:translate-y-1 py-6 rounded-2xl text-xl font-bold flex flex-col items-center gap-2 shadow-sm transition-all">
+                        <span>${p.label}</span>
+                        <span class="text-sm opacity-60 font-normal">(${p.eng})</span>
+                    </button>
+                `;
+            });
+            html += `</div>`;
+            contentArea.innerHTML = html;
+        }
+
+        function handlePronounSelect(id) {
+            state.pronoun = pronouns.find(p => p.id === id);
+            renderStep2();
+        }
+
+        // STEP 2: Select Tense
+        function renderStep2() {
+            setInstruction(`Step 2: When is ${state.pronoun.label} doing it?`);
+            let html = `<div class="flex flex-col gap-4 w-full max-w-md pop">`;
+            
+            // Show selection so far
+            html += `<div class="flex justify-center mb-4"><span class="px-4 py-2 bg-slate-200 rounded-lg text-slate-600 font-bold">${state.pronoun.label} ...</span></div>`;
+
+            tenses.forEach(t => {
+                html += `
+                    <button onclick="handleTenseSelect('${t.id}')" 
+                        class="${t.color} border-b-4 border-black/20 hover:brightness-110 active:border-b-0 active:translate-y-1 py-6 rounded-2xl text-2xl font-bold flex justify-between px-8 items-center shadow-lg transition-all">
+                        <span>${t.label}</span>
+                        <span class="text-sm opacity-80 font-normal bg-black/10 px-3 py-1 rounded-full">${t.desc}</span>
+                    </button>
+                `;
+            });
+            html += `</div>`;
+            contentArea.innerHTML = html;
+        }
+
+        function handleTenseSelect(id) {
+            state.tense = tenses.find(t => t.id === id);
+            renderStep3();
+        }
+
+        // STEP 3: Select Verb
+        function renderStep3() {
+            setInstruction(`Step 3: What is the action?`);
+            let html = `<div class="w-full max-w-2xl pop flex flex-col h-full">`;
+            
+            html += `<div class="flex justify-center mb-4 gap-2">
+                <span class="px-4 py-2 bg-slate-200 rounded-lg text-slate-600 font-bold">${state.pronoun.label}</span>
+                <span class="px-4 py-2 bg-slate-200 rounded-lg text-slate-600 font-bold">${state.tense.label}</span>
+                <span class="px-4 py-2 bg-slate-200 rounded-lg text-slate-600 font-bold">...</span>
+            </div>`;
+
+            html += `<div class="grid grid-cols-2 gap-4 overflow-y-auto verb-list p-2">`;
+            verbs.forEach(v => {
+                html += `
+                    <button onclick="handleVerbSelect('${v.inf}')" 
+                        class="bg-white border-2 border-slate-200 hover:border-blue-400 hover:bg-blue-50 py-4 rounded-xl text-lg font-bold text-slate-700 shadow-sm transition-all flex flex-col items-center">
+                        <span>${v.inf}</span>
+                        <span class="text-xs text-slate-400 font-normal">${v.eng}</span>
+                    </button>
+                `;
+            });
+            html += `</div></div>`;
+            contentArea.innerHTML = html;
+        }
+
+        function handleVerbSelect(inf) {
+            state.verb = verbs.find(v => v.inf === inf);
+            state.sentence = []; // Reset sentence construction
+            startBuilder();
+        }
+
+        // --- THE BUILDER (STEP 4) ---
+        
+        function startBuilder() {
+            // Setup the sentence structure based on tense
+            
+            // 1. Subject (Always first for this exercise)
+            state.sentence.push({ type: 'subject', text: state.pronoun.label, locked: true });
+
+            // 2. Determine V2 (Verb 2nd position)
+            if (state.tense.id === 'present') {
+                // For present, we need to BUILD the verb
+                renderConjugationLab('present');
+            } else if (state.tense.id === 'future') {
+                renderConjugationLab('werden');
+            } else if (state.tense.id === 'past') {
+                renderConjugationLab('aux');
+            }
+        }
+
+        // LAB: Conjugating the V2 verb
+        function renderConjugationLab(mode) {
+            let stem = "";
+            let correctEnding = "";
+            let taskText = "";
+            let baseColor = "bg-blue-100";
+            
+            if (mode === 'present') {
+                // Handle stem changes for Essen/Fahren
+                stem = state.verb.stem;
+                if (state.pronoun.id === 'du' || state.pronoun.id === 'er' || state.pronoun.id === 'sie_sg') {
+                    if (state.verb.inf === 'essen') stem = 'i'; // Special case simplified for UI
+                    if (state.verb.inf === 'fahren') stem = 'fähr';
+                }
+                // Correction for full stems
+                if (state.verb.inf === 'essen' && (state.pronoun.id === 'du' || state.pronoun.id === 'er' || state.pronoun.id === 'sie_sg')) stem = 'iss';
+                else if (state.verb.inf === 'essen') stem = 'ess';
+
+                correctEnding = endings[state.pronoun.id];
+                taskText = `Conjugate <b>${state.verb.inf}</b> for <b>${state.pronoun.label}</b>.`;
+            } else if (mode === 'werden') {
+                stem = "werd"; // Base visual
+                correctEnding = ""; // We will pick full forms
+                taskText = `Select the correct form of <b>werden</b> for <b>${state.pronoun.label}</b>.`;
+            } else if (mode === 'aux') {
+                taskText = `Select the correct helper verb (Haben or Sein) for <b>${state.verb.inf}</b>.`;
+            }
+
+            // UI
+            setInstruction(taskText);
+            
+            let html = `<div class="flex flex-col items-center w-full max-w-3xl animate-fade-in">`;
+            
+            // Sentence Strip
+            html += `<div class="flex gap-2 mb-8 items-end min-h-[80px]">
+                        <div class="px-6 py-4 bg-white rounded-xl shadow-md border-b-4 border-slate-200 text-2xl font-bold text-slate-700">${state.pronoun.label}</div>
+                        <div class="px-6 py-4 bg-blue-100 border-2 border-dashed border-blue-400 rounded-xl text-2xl font-bold text-blue-500 min-w-[120px] flex justify-center items-center">?</div>
+                        ${state.tense.id !== 'present' ? `<div class="px-4 py-2 bg-slate-50 rounded text-slate-400 self-center">...</div>` : ''}
+                    </div>`;
+
+            // Controls
+            html += `<div class="bg-white p-6 rounded-2xl shadow-xl w-full">`;
+            
+            if (mode === 'present') {
+                // Interactive stem + ending adder
+                html += `
+                    <div class="flex flex-col items-center gap-6">
+                        <div id="word-lab-display" class="text-4xl font-bold text-blue-600 tracking-wide bg-blue-50 px-8 py-4 rounded-xl border border-blue-200">
+                            ${stem}<span id="ending-slot" class="text-slate-300">_</span>
+                        </div>
+                        <div class="grid grid-cols-4 gap-3">
+                            ${['-e', '-st', '-t', '-en'].map(end => 
+                                `<button onclick="checkEnding('${end}', '${correctEnding}', '${stem}')" class="px-4 py-3 bg-slate-100 hover:bg-blue-100 font-bold rounded-lg transition border-b-2 border-slate-300 active:border-b-0 active:translate-y-1">${end}</button>`
+                            ).join('')}
+                        </div>
+                    </div>
+                `;
+            } else if (mode === 'werden') {
+                // Multiple choice for werden
+                html += `<div class="grid grid-cols-2 md:grid-cols-3 gap-4">`;
+                const options = ['werde', 'wirst', 'wird', 'werden', 'werdet'];
+                options.forEach(opt => {
+                     html += `<button onclick="checkAuxChoice('${opt}', '${werdenForms[state.pronoun.id]}', 'future')" class="px-6 py-4 bg-purple-50 hover:bg-purple-100 text-purple-800 font-bold rounded-xl text-xl border-b-4 border-purple-200 active:border-b-0 active:translate-y-1">${opt}</button>`;
+                });
+                html += `</div>`;
+            } else if (mode === 'aux') {
+                // Choice Haben vs Sein
+                html += `<div class="grid grid-cols-2 gap-6 w-full max-w-md mx-auto">`;
+                
+                // Construct the correct form to check against
+                const correctAux = state.verb.aux === 'haben' ? habenForms[state.pronoun.id] : seinForms[state.pronoun.id];
+                const wrongAux = state.verb.aux === 'haben' ? seinForms[state.pronoun.id] : habenForms[state.pronoun.id];
+
+                // Randomize order
+                const buttons = [
+                    { txt: correctAux, correct: true, label: 'Helper 1' },
+                    { txt: wrongAux, correct: false, label: 'Helper 2' }
+                ].sort(() => Math.random() - 0.5);
+
+                buttons.forEach(b => {
+                     html += `<button onclick="checkAuxChoice('${b.txt}', '${correctAux}', 'past')" class="px-6 py-8 bg-orange-50 hover:bg-orange-100 text-orange-800 font-bold rounded-xl text-2xl border-b-4 border-orange-200 active:border-b-0 active:translate-y-1">${b.txt}</button>`;
+                });
+                html += `</div>`;
+            }
+
+            html += `</div></div>`;
+            contentArea.innerHTML = html;
+        }
+
+        function checkEnding(selected, correct, stem) {
+            // Remove dash for comparison
+            const cleanSel = selected.replace('-', '');
+            
+            if (cleanSel === correct) {
+                setInstruction("Correct! The verb matches the subject.", "success");
+                // Animate completion
+                document.getElementById('ending-slot').textContent = cleanSel;
+                document.getElementById('ending-slot').className = "text-blue-600";
+                
+                setTimeout(() => {
+                    state.sentence.push({ type: 'verb', text: stem + cleanSel });
+                    proceedToContext();
+                }, 1000);
+            } else {
+                setInstruction(`Not quite. '${state.pronoun.label}' usually ends in -${correct}.`, "error");
+            }
+        }
+
+        function checkAuxChoice(selected, correct, nextStage) {
+            if (selected === correct) {
+                setInstruction("Correct!", "success");
+                setTimeout(() => {
+                    state.sentence.push({ type: 'aux', text: selected });
+                    proceedToContext();
+                }, 800);
+            } else {
+                if(nextStage === 'past') {
+                    setInstruction(`Check again! Movement verbs usually take 'sein', others 'haben'.`, "error");
+                } else {
+                    setInstruction(`Check the conjugation chart for '${state.pronoun.label}'.`, "error");
+                }
+            }
+        }
+
+        // STEP: The Middle Context
+        function proceedToContext() {
+            // Add context word automatically to save flow, but show it appearing
+            state.sentence.push({ type: 'context', text: state.verb.context });
+            
+            if (state.tense.id === 'present') {
+                finishSentence();
+            } else {
+                renderEndField();
+            }
+        }
+
+        // STEP: The End Field (Future/Past)
+        function renderEndField() {
+            const isFuture = state.tense.id === 'future';
+            setInstruction(isFuture 
+                ? "Future Tense: Move the dictionary form (Infinitive) to the end." 
+                : "Past Tense: Build the Past Participle at the end.");
+
+            let html = `<div class="flex flex-col items-center w-full max-w-4xl animate-fade-in">`;
+            
+            // Sentence Strip Construction
+            html += `<div class="flex flex-wrap justify-center gap-2 mb-12 items-center">`;
+            
+            // 1. Pronoun
+            html += `<div class="px-4 py-3 bg-white rounded-lg shadow border-b-4 border-slate-200 font-bold text-slate-700">${state.sentence[0].text}</div>`;
+            
+            // 2. Aux/Verb
+            const auxColor = isFuture ? 'border-purple-200 text-purple-700' : 'border-orange-200 text-orange-700';
+            html += `<div class="px-4 py-3 bg-white rounded-lg shadow border-b-4 ${auxColor} font-bold">${state.sentence[1].text}</div>`;
+            
+            // 3. Context
+            html += `<div class="px-4 py-3 bg-slate-100 rounded-lg border border-slate-200 text-slate-500">${state.sentence[2].text}</div>`;
+            
+            // 4. Target Slot
+            html += `<div id="target-slot" onclick="placeEndVerb()" class="ml-4 w-40 h-16 bg-slate-100 border-4 border-dashed border-slate-300 rounded-xl flex items-center justify-center text-slate-400 font-bold cursor-pointer hover:bg-slate-200 transition">End Zone</div>`;
+            
+            html += `</div>`;
+
+            // Controls
+            html += `<div class="w-full bg-white p-6 rounded-2xl shadow-xl flex flex-col items-center gap-4">`;
+            
+            if (isFuture) {
+                // Drag/Click Infinitive
+                html += `<p class="text-slate-500 mb-2">Tap the verb to send it to the end.</p>`;
+                html += `<button id="move-btn" onclick="animateMove()" class="px-8 py-4 bg-purple-100 hover:bg-purple-200 text-purple-800 font-bold text-xl rounded-xl border-b-4 border-purple-300 transition shadow-sm">${state.verb.inf}</button>`;
+            } else {
+                // Past Participle Builder
+                html += `<p class="text-slate-500 mb-2">Build the Past Participle.</p>`;
+                
+                // The construction zone
+                html += `<div class="flex items-center gap-2 mb-6">
+                    <button onclick="togglePrefix()" id="prefix-btn" class="px-3 py-2 border-2 border-dashed border-slate-300 rounded text-slate-300 font-bold hover:bg-orange-50">ge-</button>
+                    <span class="text-xl font-bold text-slate-700 mx-1">${state.verb.type === 'weak' ? state.verb.stem : state.verb.stem}</span>
+                    <button onclick="toggleSuffix('t')" id="suffix-t" class="suffix-btn px-3 py-2 border-2 border-dashed border-slate-300 rounded text-slate-300 font-bold hover:bg-orange-50">-t</button>
+                    <button onclick="toggleSuffix('en')" id="suffix-en" class="suffix-btn px-3 py-2 border-2 border-dashed border-slate-300 rounded text-slate-300 font-bold hover:bg-orange-50">-en</button>
+                </div>`;
+                
+                html += `<button onclick="validateParticiple()" class="px-8 py-3 bg-orange-500 hover:bg-orange-600 text-white font-bold rounded-xl shadow-lg transition transform active:scale-95">Send to End</button>`;
+            }
+
+            html += `</div></div>`;
+            contentArea.innerHTML = html;
+
+            // Past Tense State Logic
+            if (!isFuture) {
+                window.participleState = { hasGe: false, suffix: null };
+            }
+        }
+
+        // --- FUTURE LOGIC ---
+        function animateMove() {
+            const btn = document.getElementById('move-btn');
+            const slot = document.getElementById('target-slot');
+            
+            // Simple visual swap
+            btn.style.transform = "scale(0)";
+            setTimeout(() => {
+                slot.classList.remove('border-dashed', 'text-slate-400', 'bg-slate-100');
+                slot.classList.add('bg-purple-100', 'text-purple-800', 'border-purple-300', 'border-solid');
+                slot.textContent = state.verb.inf;
+                slot.classList.add('pop');
+                
+                setInstruction("Perfect! The infinitive always goes to the end.", "success");
+                setTimeout(finishSentence, 1500);
+            }, 200);
+        }
+
+        // --- PAST LOGIC ---
+        function togglePrefix() {
+            const btn = document.getElementById('prefix-btn');
+            window.participleState.hasGe = !window.participleState.hasGe;
+            
+            if (window.participleState.hasGe) {
+                btn.classList.add('bg-orange-500', 'text-white', 'border-orange-500');
+                btn.classList.remove('text-slate-300', 'border-dashed');
+            } else {
+                btn.classList.remove('bg-orange-500', 'text-white', 'border-orange-500');
+                btn.classList.add('text-slate-300', 'border-dashed');
+            }
+        }
+
+        function toggleSuffix(type) {
+            window.participleState.suffix = type;
+            
+            // Reset visual
+            document.querySelectorAll('.suffix-btn').forEach(b => {
+                b.classList.remove('bg-orange-500', 'text-white', 'border-orange-500');
+                b.classList.add('text-slate-300', 'border-dashed');
+            });
+
+            // Set Active
+            const btn = document.getElementById('suffix-' + type);
+            btn.classList.remove('text-slate-300', 'border-dashed');
+            btn.classList.add('bg-orange-500', 'text-white', 'border-orange-500');
+        }
+
+        function validateParticiple() {
+            // Check logic
+            // 1. Check GE (Simplify: assume all these need ge- for now, ignore inseparable for this specific list as image didn't have inseparable exceptions)
+            // Note: 'besuchen' etc would be exceptions, but user list verbs (essen, machen, spielen) take ge-.
+            
+            if (!window.participleState.hasGe) {
+                setInstruction("Most past participles start with 'ge-'.", "error");
+                return;
+            }
+
+            // 2. Check Suffix
+            const correctSuffix = state.verb.type === 'weak' ? 't' : 'en';
+            if (window.participleState.suffix !== correctSuffix) {
+                if (state.verb.type === 'weak') setInstruction("Weak verbs (like this one) end in '-t'.", "error");
+                else setInstruction("Strong verbs (like this one) end in '-en'.", "error");
+                return;
+            }
+
+            // Success
+            const slot = document.getElementById('target-slot');
+            slot.classList.remove('border-dashed', 'text-slate-400', 'bg-slate-100');
+            slot.classList.add('bg-orange-100', 'text-orange-800', 'border-orange-300', 'border-solid');
+            slot.textContent = state.verb.pastPart;
+            slot.classList.add('pop');
+            
+            setInstruction("Great job constructing the Participle!", "success");
+            setTimeout(finishSentence, 1500);
+        }
+
+
+        // --- FINISH ---
+        function finishSentence() {
+            setInstruction("Excellent work! Here is your sentence.", "success");
+            
+            // Reconstruct final string
+            let finalString = `${state.sentence[0].text} ${state.sentence[1].text} ${state.sentence[2].text}`;
+            if (state.tense.id === 'future') finalString += ` ${state.verb.inf}`;
+            if (state.tense.id === 'past') finalString += ` ${state.verb.pastPart}`;
+            finalString += ".";
+
+            let html = `<div class="flex flex-col items-center justify-center h-full pop">`;
+            html += `<h2 class="text-4xl md:text-5xl font-bold text-slate-800 text-center mb-8 leading-tight">${finalString}</h2>`;
+            
+            html += `<div class="flex gap-4">
+                <button onclick="resetApp()" class="px-8 py-4 bg-slate-800 text-white rounded-full font-bold text-lg hover:bg-slate-700 shadow-xl transition hover:scale-105">Create Another</button>
+            </div>`;
+            
+            html += `</div>`;
+            contentArea.innerHTML = html;
+        }
+
+        // Init
+        init();
+
+    </script>
+</body>
+</html>
